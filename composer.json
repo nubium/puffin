@@ -1,0 +1,21 @@
+{
+  "name": "nubium/puffin",
+  "license": "MIT",
+  "description": "Compare current website with its expected visual representation.",
+  "require": {
+    "codeception/codeception": "~2.1.0"
+  },
+  "authors": [
+    {
+      "name": "Ondrej Hatala",
+      "email": "ondriq.h@gmail.com"
+    },
+    {
+      "name": "Jiri Travnicek",
+      "email": "jiri.travnicek@outlook.com"
+    }
+  ],
+  "autoload": {
+    "classmap" : [ "module/" ]
+  }
+}

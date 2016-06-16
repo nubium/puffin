@@ -1,0 +1,5 @@
+vendor
+
+tests/_data/Puffin
+tests/_output
+tests/_support/_generated

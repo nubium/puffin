@@ -1,0 +1,13 @@
+language: php
+
+php:
+  - 5.6
+  - 7.0
+
+before_script:
+  - printf "\n" | pecl install imagick # https://github.com/travis-ci/travis-ci/issues/781#issuecomment-10798885
+  - phantomjs --webdriver 4444 &
+  - composer install --dev
+  - vendor/bin/codecept build
+
+script: vendor/bin/codecept run functional
