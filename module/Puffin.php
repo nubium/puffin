@@ -5,7 +5,8 @@ namespace Codeception\Module;
 use Codeception\Configuration;
 use Codeception\Exception\ElementNotFound;
 use Codeception\Module;
-use Codeception\TestCase;
+use Codeception\TestCase\Test;
+use Codeception\TestInterface;
 use Facebook\WebDriver\Exception\InvalidElementStateException;
 use Facebook\WebDriver\Remote\RemoteWebDriver;
 use Facebook\WebDriver\WebDriverElement;
@@ -31,7 +32,8 @@ class Puffin extends Module
 	private $screenshotDirectory;
 
 	/**
-	 * @var TestCase
+	 * Codeception TestCase
+	 * @var Test
 	 */
 	private $test;
 
@@ -87,10 +89,10 @@ class Puffin extends Module
 	/**
 	 * Event hook before a test starts
 	 *
-	 * @param TestCase $test
+	 * @param TestInterface $test
 	 * @throws InvalidElementStateException
 	 */
-	public function _before(TestCase $test)
+	public function _before(TestInterface $test)
 	{
 		$webDriverModule = null;
 		foreach ($this->getModules() as $module) {

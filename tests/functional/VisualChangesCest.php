@@ -12,12 +12,14 @@ class VisualChangesCest
 	{
 	}
 
+
 	/**
 	 * @param FunctionalTester $I
 	 */
 	public function _after(FunctionalTester $I)
 	{
 	}
+
 
 	/**
 	 * @param FunctionalTester $I
@@ -31,6 +33,7 @@ class VisualChangesCest
 		$I->amOnPage('/search?q=' . mt_rand(0, 100000));
 		$I->seeVisualChanges('diff');
 	}
+
 
 	/**
 	 * @param FunctionalTester $I
