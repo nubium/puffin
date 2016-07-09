@@ -4,7 +4,7 @@ namespace Codeception\Module;
 
 use Codeception\Configuration;
 use Codeception\Module;
-use Codeception\TestCase;
+use Codeception\TestInterface;
 use Exception;
 
 /**
@@ -19,6 +19,7 @@ class PuffinReporter extends Module
 	private $templateFile;
 
 	private $referenceImageDir;
+
 
 	public function _initialize()
 	{
@@ -41,6 +42,7 @@ class PuffinReporter extends Module
 		}
 	}
 
+
 	/**
 	 * @param array $settings
 	 * @throws Exception
@@ -56,6 +58,7 @@ class PuffinReporter extends Module
 
 		$this->debug('PuffinReporter: templateFile = ' . $this->templateFile);
 	}
+
 
 	/**
 	 * Generates template
@@ -76,11 +79,12 @@ class PuffinReporter extends Module
 		file_put_contents($this->logFile, $reportContent);
 	}
 
+
 	/**
-	 * @param TestCase $test
+	 * @param TestInterface $test
 	 * @param $fail
 	 */
-	public function _failed(TestCase $test, $fail)
+	public function _failed(TestInterface $test, $fail)
 	{
 		if ($fail instanceof ImageDeviationException) {
 			$this->failed[] = $fail;
