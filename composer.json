@@ -16,6 +16,15 @@
     }
   ],
   "autoload": {
-    "classmap" : [ "module/" ]
+    "classmap": [
+      "module/"
+    ]
+  },
+  "archive": {
+    "exclude": [
+      "tests",
+      ".travis.yml",
+      ".gitignore"
+    ]
   }
 }
