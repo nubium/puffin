@@ -10,6 +10,8 @@ use Codeception\TestInterface;
 use Facebook\WebDriver\Exception\InvalidElementStateException;
 use Facebook\WebDriver\Remote\RemoteWebDriver;
 use Facebook\WebDriver\WebDriverElement;
+use Imagick;
+use ImagickException;
 use WebDriverBy;
 
 /**
@@ -116,6 +118,7 @@ class Puffin extends Module
 	 * @param string $identifier Identifies your test object
 	 * @param string $elementID DOM ID of the element, which should be screenshotted
 	 * @throws \Codeception\Module\ImageDeviationException
+	 * @throws \RuntimeException
 	 */
 	public function seeVisualChanges($identifier, $elementID = 'body')
 	{
@@ -124,7 +127,7 @@ class Puffin extends Module
 			$identifier = $identifier . '.' . $environment;
 		}
 
-		$deviationResult = $this->getDeviation($identifier, $elementID);
+		$deviationResult = $this->getScreenshotDeviation($identifier, $elementID);
 
 		if ($deviationResult['deviationImage'] !== null) {
 
@@ -136,10 +139,10 @@ class Puffin extends Module
 				$deviationResult['deviationImage']->writeImage($compareScreenshotPath);
 
 				throw new ImageDeviationException(
-					'The deviation of the taken screenshot is too low (' . $deviationResult['deviation'] . '%).'
+					'The deviation of the taken screenshot is too low - ' . $deviationResult['deviation'] . '.'
 					. PHP_EOL
 					. 'See ' . $compareScreenshotPath . ' for a deviation screenshot.',
-					$this->getExpectedScreenshotPath($identifier),
+					$this->getReferenceScreenshotPath($identifier),
 					$this->getScreenshotPath($identifier),
 					$compareScreenshotPath
 				);
@@ -155,6 +158,7 @@ class Puffin extends Module
 	 * @param string $identifier identifies your test object
 	 * @param string $elementID DOM ID of the element, which should be screenshotted
 	 * @throws \Codeception\Module\ImageDeviationException
+	 * @throws \RuntimeException
 	 */
 	public function dontSeeVisualChanges($identifier, $elementID = 'body')
 	{
@@ -163,9 +167,9 @@ class Puffin extends Module
 			$identifier = $identifier . '.' . $environment;
 		}
 
-		$deviationResult = $this->getDeviation($identifier, $elementID);
+		$deviationResult = $this->getScreenshotDeviation($identifier, $elementID);
 
-		if ($deviationResult['deviationImage'] === !null) {
+		if ($deviationResult['deviationImage'] instanceof Imagick) {
 
 			// used for assertion counter in codeception / phpunit
 			$this->assertTrue(true);
@@ -175,10 +179,10 @@ class Puffin extends Module
 				$deviationResult['deviationImage']->writeImage($compareScreenshotPath);
 
 				throw new ImageDeviationException(
-					'The deviation of the taken screenshot is too high (' . $deviationResult['deviation'] . '%).'
+					'The deviation of the taken screenshot is too high - ' . $deviationResult['deviation'] . '.'
 					. PHP_EOL
 					. 'See ' . $compareScreenshotPath . ' for a deviation screenshot.',
-					$this->getExpectedScreenshotPath($identifier),
+					$this->getReferenceScreenshotPath($identifier),
 					$this->getScreenshotPath($identifier),
 					$compareScreenshotPath
 				);
@@ -192,23 +196,26 @@ class Puffin extends Module
 	 *
 	 * @param string $identifier Identifies your test object
 	 * @param string $selector DOM ID of the element, which should be screenshotted
-	 * @return array Includes the calculation of deviation in percent and the diff-image
+	 * @return array Includes the calculation of comparison result and the diff-image
+	 * @throws \Codeception\Exception\ElementNotFound
 	 */
-	private function getDeviation($identifier, $selector)
+	private function getScreenshotDeviation($identifier, $selector)
 	{
-		$coords = $this->getCoordinates($selector);
-		$this->createScreenshot($identifier, $coords);
+		$coordinates = $this->getCoordinates($selector);
+		$this->createScreenshot($identifier, $coordinates);
 
 		$compareResult = $this->compare($identifier);
 
-		$deviation = round($compareResult[1] * 100, 2);
-
-		$this->debug('The deviation between the images is ' . $deviation . ' percent');
+		if ($compareResult['composedImages'] instanceof Imagick) {
+			$this->debug('Comparison result - ' . number_format(($compareResult['difference'] ?: 0), 15));
+		} else {
+			$this->debug('Reference image not found, this is first run and comparsion cannot be done.');
+		}
 
 		return [
-			'deviation' => $deviation,
-			'deviationImage' => $compareResult[0],
-			'currentImage' => $compareResult['currentImage'],
+			'deviation' => $compareResult['difference'],
+			'deviationImage' => $compareResult['composedImages'],
+			'comparisonImage' => $compareResult['comparisonImage'],
 		];
 	}
 
@@ -288,7 +295,7 @@ class Puffin extends Module
 	 * @param string $identifier identifies your test object
 	 * @return string Name of the reference image file
 	 */
-	private function getExpectedScreenshotPath($identifier)
+	private function getReferenceScreenshotPath($identifier)
 	{
 		return $this->referenceScreenshotDirectory . $this->getScreenshotName($identifier);
 	}
@@ -300,6 +307,7 @@ class Puffin extends Module
 	 * @param string $identifier identifies your test object
 	 * @param array $coords Coordinates where the DOM element is located
 	 * @return string Path of the current screenshot image
+	 * @throws \RuntimeException
 	 */
 	private function createScreenshot($identifier, array $coords)
 	{
@@ -313,7 +321,7 @@ class Puffin extends Module
 
 		$this->remoteWebDriver->takeScreenshot($screenshotPath);
 
-		$screenShotImage = new \Imagick();
+		$screenShotImage = new Imagick;
 		$screenShotImage->readImage($screenshotPath);
 		$screenShotImage->cropImage($coords['width'], $coords['height'], $coords['x'], $coords['y']);
 		$screenShotImage->writeImage($elementPath);
@@ -346,18 +354,25 @@ class Puffin extends Module
 	 *
 	 * @param string $identifier identifies your test object
 	 * @return array Test result of image comparison
+	 * @throws \RuntimeException
 	 */
 	private function compare($identifier)
 	{
-		$expectedImagePath = $this->getExpectedScreenshotPath($identifier);
-		$currentImagePath = $this->getScreenshotPath($identifier);
+		$referenceImagePath = $this->getReferenceScreenshotPath($identifier);
+		$comparisonImagePath = $this->getScreenshotPath($identifier);
 
-		if (!file_exists($expectedImagePath)) {
-			$this->debug("Copying image (from $currentImagePath to $expectedImagePath");
-			copy($currentImagePath, $expectedImagePath);
-			return [null, 0, 'currentImage' => null];
+		if (!file_exists($referenceImagePath)) {
+			$this->debug("Copying image (from $comparisonImagePath to $referenceImagePath");
+			copy($comparisonImagePath, $referenceImagePath);
+
+			return [
+				'composedImages' => null,
+				'comparisonImage' => null,
+				'difference' => 0,
+			];
 		} else {
-			return $this->compareImages($expectedImagePath, $currentImagePath);
+			$this->debug('Comparing ' . $referenceImagePath . ' and ' . $comparisonImagePath);
+			return $this->compareImages($referenceImagePath, $comparisonImagePath);
 		}
 	}
 
@@ -365,39 +380,46 @@ class Puffin extends Module
 	/**
 	 * Compares to images by given file path
 	 *
-	 * @param string $image1 Path to the exprected reference image
-	 * @param string $image2 Path to the current image in the screenshot
+	 * @param string $referenceImagePath Path to the exprected reference image
+	 * @param string $comparisonImagePath Path to the current image in the screenshot
 	 * @return array Result of the comparison
 	 */
-	private function compareImages($image1, $image2)
+	private function compareImages($referenceImagePath, $comparisonImagePath)
 	{
-		$this->debug("Trying to compare $image1 with $image2");
+		$referenceImage = new Imagick($referenceImagePath);
+		$comparisonImage = new Imagick($comparisonImagePath);
 
-		$imagick1 = new \Imagick($image1);
-		$imagick2 = new \Imagick($image2);
+		$this->debug('Determining maximum width and height of given screenshots');
+		$maximumWidth = max($referenceImage->getImageWidth(), $comparisonImage->getImageWidth());
+		$maximumHeight = max($referenceImage->getImageHeight(), $comparisonImage->getImageHeight());
 
-		$imagick1Size = $imagick1->getImageGeometry();
-		$imagick2Size = $imagick2->getImageGeometry();
+		$this->debug('Extending screenshots to the same size - ' . $maximumWidth . 'x' . $maximumHeight);
+		$referenceImage->extentImage($maximumWidth, $maximumHeight, 0, 0);
+		$comparisonImage->extentImage($maximumWidth, $maximumHeight, 0, 0);
 
-		$maxWidth = max($imagick1Size['width'], $imagick2Size['width']);
-		$maxHeight = max($imagick1Size['height'], $imagick2Size['height']);
 
-		$imagick1->extentImage($maxWidth, $maxHeight, 0, 0);
-		$imagick2->extentImage($maxWidth, $maxHeight, 0, 0);
-
-		$result = [];
+		$comparisonResult = [];
 		try {
-			$result = $imagick1->compareImages($imagick2, \Imagick::METRIC_MEANSQUAREERROR);
-			$result[0]->setImageFormat('png');
-			$result['currentImage'] = clone $imagick2;
-			$result['currentImage']->setImageFormat('png');
-		} catch (\ImagickException $e) {
-			$this->debug(
-				"Could not compare screenshot ($image1) screenshot ($image2): " . $e->getMessage()
+			$result = $referenceImage->compareImages($comparisonImage, Imagick::METRIC_MEANSQUAREERROR);
+			$comparisonResult['composedImages'] = $result[0];
+			$comparisonResult['composedImages']->setImageFormat('png');
+
+			$comparisonResult['comparisonImage'] = clone $comparisonImage;
+			$comparisonResult['comparisonImage']->setImageFormat('png');
+
+			$comparisonResult['difference'] = $result[1];
+		} catch (ImagickException $e) {
+			$this->fail(
+				'Could not compare images: '
+				. $e->getMessage()
+				. PHP_EOL
+				. $referenceImagePath
+				. PHP_EOL
+				. $comparisonImagePath
 			);
-			$this->fail($e->getMessage() . ", screenshot $image1 and screenshot $image2.");
 		}
-		return $result;
+
+		return $comparisonResult;
 	}
 
 
