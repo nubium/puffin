@@ -8,6 +8,7 @@ class ImageDeviationException extends \PHPUnit_Framework_ExpectationFailedExcept
 	private $currentImage;
 	private $deviationImage;
 
+
 	public function __construct($message, $expectedImage, $currentImage, $deviationImage)
 	{
 		$this->deviationImage = $deviationImage;
@@ -17,15 +18,18 @@ class ImageDeviationException extends \PHPUnit_Framework_ExpectationFailedExcept
 		parent::__construct($message);
 	}
 
+
 	public function getDeviationImage()
 	{
 		return $this->deviationImage;
 	}
 
+
 	public function getCurrentImage()
 	{
 		return $this->currentImage;
 	}
+
 
 	public function getExpectedImage()
 	{
