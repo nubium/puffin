@@ -139,7 +139,7 @@ class Puffin extends Module
 				$deviationResult['deviationImage']->writeImage($compareScreenshotPath);
 
 				throw new ImageDeviationException(
-					'The deviation of the taken screenshot is too low - ' . $deviationResult['deviation'] . '.'
+					'Comparison result is too low - ' . number_format(($deviationResult['difference'] ?: 0), 15) . '.'
 					. PHP_EOL
 					. 'See ' . $compareScreenshotPath . ' for a deviation screenshot.',
 					$this->getReferenceScreenshotPath($identifier),
@@ -179,7 +179,7 @@ class Puffin extends Module
 				$deviationResult['deviationImage']->writeImage($compareScreenshotPath);
 
 				throw new ImageDeviationException(
-					'The deviation of the taken screenshot is too high - ' . $deviationResult['deviation'] . '.'
+					'Comparison result is too high - ' . $deviationResult['deviation'] . '.'
 					. PHP_EOL
 					. 'See ' . $compareScreenshotPath . ' for a deviation screenshot.',
 					$this->getReferenceScreenshotPath($identifier),
