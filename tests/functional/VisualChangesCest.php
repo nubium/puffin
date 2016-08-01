@@ -12,6 +12,7 @@ class VisualChangesCest
 	{
 	}
 
+
 	/**
 	 * @param FunctionalTester $I
 	 */
@@ -19,18 +20,6 @@ class VisualChangesCest
 	{
 	}
 
-	/**
-	 * @param FunctionalTester $I
-	 */
-	public function seeVisualChanges(FunctionalTester $I)
-	{
-		$I->amOnPage('/search?q=' . mt_rand(0, 100000));
-		$I->seeVisualChanges('diff');
-
-		// the test has to be called twice for comparison on the travis server
-		$I->amOnPage('/search?q=' . mt_rand(0, 100000));
-		$I->seeVisualChanges('diff');
-	}
 
 	/**
 	 * @param FunctionalTester $I
