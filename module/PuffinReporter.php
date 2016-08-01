@@ -4,8 +4,10 @@ namespace Codeception\Module;
 
 use Codeception\Configuration;
 use Codeception\Module;
-use Codeception\TestCase;
-use Exception;
+use Latte\Engine;
+use RuntimeException;
+use Symfony\Component\Finder\Finder;
+use Symfony\Component\Finder\SplFileInfo;
 
 /**
  * Class PuffinReporter
@@ -13,12 +15,11 @@ use Exception;
  */
 class PuffinReporter extends Module
 {
-	private $failed = [];
-	private $logFile;
-	private $templateVars = [];
-	private $templateFile;
+	/**
+	 * @var string working directory
+	 */
+	private $workingDirectory;
 
-	private $referenceImageDir;
 
 	public function _initialize()
 	{
@@ -41,49 +42,74 @@ class PuffinReporter extends Module
 		}
 	}
 
+
 	/**
 	 * @param array $settings
-	 * @throws Exception
-	 * @throws \Codeception\Exception\ModuleException
+	 * @throws RuntimeException
 	 */
 	public function _beforeSuite($settings = [])
 	{
 		if (!$this->hasModule('Puffin')) {
-			throw new Exception('PuffinReporter uses Puffin. Please be sure that this module is activated.');
+			throw new RuntimeException('PuffinReporter uses Puffin. Please be sure that this module is activated.');
 		}
 
-		$this->referenceImageDir = $this->getModule('Puffin')->getReferenceScreenshotDirectory();
+		/** @var Puffin $puffin */
+		$puffin = $this->getModule('Puffin');
+		$this->workingDirectory = $puffin->getWorkingDirectory();
 
-		$this->debug('PuffinReporter: templateFile = ' . $this->templateFile);
+		$this->debug('Working directory has been set to ' . $this->workingDirectory);
 	}
+
 
 	/**
 	 * Generates template
 	 */
 	public function _afterSuite()
 	{
-		$failedTests = $this->failed;
-		$vars = $this->templateVars;
-		$referenceImageDir = $this->referenceImageDir;
-		$i = 0;
+		// find all json files in working directory
+		$finder = new Finder;
+		$resultFiles = $finder->files()->name('*.json');
 
-		ob_start();
-		include_once $this->templateFile;
-		$reportContent = ob_get_contents();
-		ob_clean();
+		// decode its json content
+		$results = [];
+		/** @var SplFileInfo $file */
+		foreach ($resultFiles->in($this->workingDirectory) as $file) {
+			$results[] = json_decode($file->getContents(), true);
+		}
 
-		$this->debug('Trying to store file (' . $this->logFile . ')');
-		file_put_contents($this->logFile, $reportContent);
+		// sort results by deviation
+		uasort($results, function ($item1, $item2) {
+			if ($item1['deviation'] === $item2['deviation']) {
+				return 0;
+			}
+			return $item1['deviation'] < $item2['deviation'] ? -1 : 1;
+		});
+
+		// convert images to base64 string
+		foreach ($results as $key => $result) {
+			$results[$key]['productionImage'] = $this->imageToBase64($results[$key]['productionImagePath']);
+			$results[$key]['stagingImage'] = $this->imageToBase64($results[$key]['stagingImagePath']);
+			$results[$key]['comparisonImage'] = $this->imageToBase64($results[$key]['comparisonImagePath']);
+		}
+
+		// render report
+		$latte = new Engine;
+		$report = $latte->renderToString(__DIR__ . '/report/template.latte', [
+			'results' => $results,
+		]);
+
+		file_put_contents($this->workingDirectory . '/report.html', $report);
 	}
 
+
 	/**
-	 * @param TestCase $test
-	 * @param $fail
+	 * @param string $path to image
+	 * @return string base64 encoded image ready to be placed in image src attribute
 	 */
-	public function _failed(TestCase $test, $fail)
+	private function imageToBase64($path)
 	{
-		if ($fail instanceof ImageDeviationException) {
-			$this->failed[] = $fail;
-		}
+		$type = pathinfo($path, PATHINFO_EXTENSION);
+		$data = file_get_contents($path);
+		return 'data:image/' . $type . ';base64,' . base64_encode($data);
 	}
 }
