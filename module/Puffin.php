@@ -20,15 +20,19 @@ use WebDriverBy;
 class Puffin extends Module
 {
 	/**
-	 * @var string
+	 * @const screenshot extension
 	 */
-	private $referenceScreenshotDirectory;
+	const SCREENSHOT_EXTENSION = 'png';
 
 	/**
-	 * This var represents the directory where the taken images are stored
+	 * @const comparison result extension
+	 */
+	const COMPARISON_RESULT_EXTENSION = 'json';
+
+	/**
 	 * @var string
 	 */
-	private $screenshotDirectory;
+	private $workingDirectory;
 
 	/**
 	 * @var TestCase
@@ -44,7 +48,7 @@ class Puffin extends Module
 	/**
 	 * @var RemoteWebDriver
 	 */
-	private $remoteWebDriver;
+	private $webDriver;
 
 	/**
 	 * @var WebDriver
@@ -66,20 +70,14 @@ class Puffin extends Module
 			$this->maximumDeviation = $this->config['maximumDeviation'];
 		}
 
-		if (array_key_exists('referenceDirectory', $this->config)) {
-			$this->referenceScreenshotDirectory = $this->config['referenceDirectory'];
+		if (array_key_exists('workingDirectory', $this->config)) {
+			$this->workingDirectory = $this->config['workingDirectory'];
 		} else {
-			$this->referenceScreenshotDirectory = Configuration::dataDir() . 'Puffin/';
+			$this->workingDirectory = Configuration::outputDir() . '/Puffin/';
 		}
 
-		if (!is_dir($this->referenceScreenshotDirectory) && !@mkdir($this->referenceScreenshotDirectory, 0777, true)) {
-			throw new InvalidElementStateException('Unable to create screenshot directory');
-		}
-
-		if (array_key_exists('currentImageDir', $this->config)) {
-			$this->screenshotDirectory = $this->config['currentImageDir'];
-		} else {
-			$this->screenshotDirectory = Configuration::logDir() . 'debug/tmp/';
+		if (!@mkdir($this->workingDirectory, 0777, true) && !is_dir($this->workingDirectory)) {
+			throw new InvalidElementStateException('Unable to create working directory');
 		}
 	}
 
@@ -103,7 +101,7 @@ class Puffin extends Module
 		}
 
 		$this->webDriverModule = $webDriverModule;
-		$this->remoteWebDriver = $this->webDriverModule->webDriver;
+		$this->webDriver = $this->webDriverModule->webDriver;
 
 		$this->test = $test;
 	}
@@ -113,50 +111,9 @@ class Puffin extends Module
 	 * Compare the reference image with a current screenshot, identified by their indentifier name
 	 * and their element ID.
 	 *
-	 * @param string $identifier Identifies your test object
-	 * @param string $elementID DOM ID of the element, which should be screenshotted
-	 * @throws \Codeception\Module\ImageDeviationException
-	 * @throws \RuntimeException
-	 */
-	public function seeVisualChanges($identifier, $elementID = 'body')
-	{
-		$environment = $this->test->getScenario()->current('env');
-		if ($environment) {
-			$identifier = $identifier . '.' . $environment;
-		}
-
-		$deviationResult = $this->getScreenshotDeviation($identifier, $elementID);
-
-		if ($deviationResult['deviationImage'] !== null) {
-
-			// used for assertion counter in codeception / phpunit
-			$this->assertTrue(true);
-
-			if ($deviationResult['deviation'] <= $this->maximumDeviation) {
-				$compareScreenshotPath = $this->getDeviationScreenshotPath($identifier);
-				$deviationResult['deviationImage']->writeImage($compareScreenshotPath);
-
-				throw new ImageDeviationException(
-					'Comparison result is too low - ' . number_format(($deviationResult['difference'] ?: 0), 15) . '.'
-					. PHP_EOL
-					. 'See ' . $compareScreenshotPath . ' for a deviation screenshot.',
-					$this->getReferenceScreenshotPath($identifier),
-					$this->getScreenshotPath($identifier),
-					$compareScreenshotPath
-				);
-			}
-		}
-	}
-
-
-	/**
-	 * Compare the reference image with a current screenshot, identified by their indentifier name
-	 * and their element ID.
-	 *
 	 * @param string $identifier identifies your test object
 	 * @param string $elementID DOM ID of the element, which should be screenshotted
-	 * @throws \Codeception\Module\ImageDeviationException
-	 * @throws \RuntimeException
+	 * @throws \Exception
 	 */
 	public function dontSeeVisualChanges($identifier, $elementID = 'body')
 	{
@@ -165,26 +122,73 @@ class Puffin extends Module
 			$identifier = $identifier . '.' . $environment;
 		}
 
-		$deviationResult = $this->getScreenshotDeviation($identifier, $elementID);
+		// used for assertion counter in codeception / phpunit
+		$this->assertTrue(true);
 
-		if ($deviationResult['deviationImage'] instanceof Imagick) {
+		$comparisonResult = $this->compareScreenshots($identifier, $elementID);
 
-			// used for assertion counter in codeception / phpunit
-			$this->assertTrue(true);
+		$result = [
+			'identifier' => $identifier,
+			'deviation' => $comparisonResult['deviation'],
+			'productionImagePath' => $this->getProductionScreenshotPath($identifier),
+			'stagingImagePath' => $this->getStagingScreenshotPath($identifier),
+			'comparisonImagePath' => null,
+			'workingDirectory' => $this->getWorkingDirectory(),
+		];
 
-			if ($deviationResult['deviation'] > $this->maximumDeviation) {
-				$compareScreenshotPath = $this->getDeviationScreenshotPath($identifier);
-				$deviationResult['deviationImage']->writeImage($compareScreenshotPath);
 
-				throw new ImageDeviationException(
-					'Comparison result is too high - ' . $deviationResult['deviation'] . '.'
-					. PHP_EOL
-					. 'See ' . $compareScreenshotPath . ' for a deviation screenshot.',
-					$this->getReferenceScreenshotPath($identifier),
-					$this->getScreenshotPath($identifier),
-					$compareScreenshotPath
-				);
+		// if comparison has been done 
+		if (
+			$comparisonResult['deviationImage'] instanceof Imagick
+		) {
+			$compareScreenshotPath = $this->getComparisonScreenshotPath($identifier);
+			if ($comparisonResult['deviationImage']->writeImage($compareScreenshotPath)) {
+				$result['comparisonImagePath'] = $compareScreenshotPath;
+			} else {
+				throw new \RuntimeException('Failed to write composed image.');
 			}
+
+			$this->debug('See ' . $compareScreenshotPath . ' for a deviation screenshot.');
+		}
+
+		$this->saveComparisonResult($result);
+	}
+
+
+	/**
+	 * @param array $result
+	 * @throws \Exception
+	 */
+	private function saveComparisonResult(array $result)
+	{
+
+		if (!array_key_exists('identifier', $result)) {
+			throw new \InvalidArgumentException('Result must contain identifier of test object.');
+		}
+
+		if (!array_key_exists('deviation', $result)) {
+			throw new \InvalidArgumentException('Result must contain deviation information.');
+		}
+
+		if ($result['deviation'] === 0) {
+			return;
+		}
+
+		if (!array_key_exists('productionImagePath', $result)) {
+			throw new \InvalidArgumentException('Result must contain information about production image path.');
+		}
+
+		if (!array_key_exists('stagingImagePath', $result)) {
+			throw new \InvalidArgumentException('Result must contain information about staging image path.');
+		}
+
+		if (!array_key_exists('comparisonImagePath', $result)) {
+			throw new \InvalidArgumentException('Result must contain information about comparison image path.');
+		}
+
+		$comparisonResultPath = $this->getComparisonResultPath($result['identifier']);
+		if (!file_put_contents($comparisonResultPath, json_encode($result, JSON_PRETTY_PRINT))) {
+			throw new \Exception('Failed to write comparison result to ' . $comparisonResultPath);
 		}
 	}
 
@@ -197,17 +201,17 @@ class Puffin extends Module
 	 * @return array Includes the calculation of comparison result and the diff-image
 	 * @throws \Codeception\Exception\ElementNotFound
 	 */
-	private function getScreenshotDeviation($identifier, $selector)
+	private function compareScreenshots($identifier, $selector)
 	{
 		$coordinates = $this->getCoordinates($selector);
-		$this->createScreenshot($identifier, $coordinates);
+		$this->takeScreenshot($identifier, $coordinates);
 
 		$compareResult = $this->compare($identifier);
 
 		if ($compareResult['composedImages'] instanceof Imagick) {
-			$this->debug('Comparison result - ' . number_format(($compareResult['difference'] ?: 0), 15));
+			$this->debug('Comparison result is ' . $this->formatNumber($compareResult['difference']));
 		} else {
-			$this->debug('Reference image not found, this is first run and comparsion cannot be done.');
+			$this->debug('Production image not found, this is first run and comparision cannot be done.');
 		}
 
 		return [
@@ -233,7 +237,7 @@ class Puffin extends Module
 			$this->webDriverModule->waitForElementVisible($selector, 10);
 
 			/** @var WebDriverElement|null $element */
-			$element = $this->remoteWebDriver->findElement(WebDriverBy::cssSelector($selector));
+			$element = $this->webDriver->findElement(WebDriverBy::cssSelector($selector));
 		} catch (\Exception $e) {
 			throw new ElementNotFound('Element ' . $selector . ' could not be located by WebDriver');
 		}
@@ -260,42 +264,7 @@ class Puffin extends Module
 	{
 		$className = preg_replace('/(Cept|Cest)\.php/', '', basename($this->test->getFileName()));
 
-		return $className . '.' . $identifier . '.png';
-	}
-
-
-	/**
-	 * Returns the temporary path including the filename where a the screenshot should be saved
-	 * If the path doesn't exist, the method generate it itself
-	 *
-	 * @param string $identifier identifies your test object
-	 * @return string Path an name of the image file
-	 * @throws \RuntimeException if debug dir could not create
-	 */
-	private function getScreenshotPath($identifier)
-	{
-		$debugDir = $this->screenshotDirectory;
-		if (!is_dir($debugDir)) {
-			$created = mkdir($debugDir, 0777, true);
-			if ($created) {
-				$this->debug("Creating directory: $debugDir}");
-			} else {
-				throw new \RuntimeException("Unable to create temporary screenshot dir ($debugDir)");
-			}
-		}
-		return $debugDir . $this->getScreenshotName($identifier);
-	}
-
-
-	/**
-	 * Returns the reference image path including the filename
-	 *
-	 * @param string $identifier identifies your test object
-	 * @return string Name of the reference image file
-	 */
-	private function getReferenceScreenshotPath($identifier)
-	{
-		return $this->referenceScreenshotDirectory . $this->getScreenshotName($identifier);
+		return $className . '.' . $identifier;
 	}
 
 
@@ -303,45 +272,24 @@ class Puffin extends Module
 	 * Generate the screenshot of the dom element
 	 *
 	 * @param string $identifier identifies your test object
-	 * @param array $coords Coordinates where the DOM element is located
+	 * @param array $coordinates Coordinates where the DOM element is located
 	 * @return string Path of the current screenshot image
 	 * @throws \RuntimeException
 	 */
-	private function createScreenshot($identifier, array $coords)
+	private function takeScreenshot($identifier, array $coordinates)
 	{
-		$screenShotDir = Configuration::logDir() . 'debug/';
+		$temporaryPath = $this->workingDirectory . 'fullscreenshot.tmp.' . self::SCREENSHOT_EXTENSION;
+		$screenshotPath = $this->getScreenshotPath($identifier);
 
-		if (!is_dir($screenShotDir)) {
-			mkdir($screenShotDir, 0777, true);
-		}
-		$screenshotPath = $screenShotDir . 'fullscreenshot.tmp.png';
-		$elementPath = $this->getScreenshotPath($identifier);
+		$this->webDriver->takeScreenshot($temporaryPath);
 
-		$this->remoteWebDriver->takeScreenshot($screenshotPath);
+		$screenshot = new Imagick($temporaryPath);
+		$screenshot->cropImage($coordinates['width'], $coordinates['height'], $coordinates['x'], $coordinates['y']);
+		$screenshot->writeImage($screenshotPath);
 
-		$screenShotImage = new Imagick;
-		$screenShotImage->readImage($screenshotPath);
-		$screenShotImage->cropImage($coords['width'], $coords['height'], $coords['x'], $coords['y']);
-		$screenShotImage->writeImage($elementPath);
+		unlink($temporaryPath);
 
-		unlink($screenshotPath);
-
-		return $elementPath;
-	}
-
-
-	/**
-	 * Returns the image path including the filename of a deviation image
-	 *
-	 * @param string $identifier identifies your test object
-	 * @param string $alternativePrefix
-	 * @return string Path of the deviation image
-	 */
-	private function getDeviationScreenshotPath($identifier, $alternativePrefix = '')
-	{
-		$debugDir = Configuration::logDir() . 'debug/';
-		$prefix = ($alternativePrefix === '') ? 'compare' : $alternativePrefix;
-		return $debugDir . $prefix . $this->getScreenshotName($identifier);
+		return $screenshotPath;
 	}
 
 
@@ -356,21 +304,18 @@ class Puffin extends Module
 	 */
 	private function compare($identifier)
 	{
-		$referenceImagePath = $this->getReferenceScreenshotPath($identifier);
-		$comparisonImagePath = $this->getScreenshotPath($identifier);
+		$productionScreenshotPath = $this->getProductionScreenshotPath($identifier);
+		$stagingScreenshotPath = $this->getStagingScreenshotPath($identifier);
 
-		if (!file_exists($referenceImagePath)) {
-			$this->debug("Copying image (from $comparisonImagePath to $referenceImagePath");
-			copy($comparisonImagePath, $referenceImagePath);
-
+		if (file_exists($productionScreenshotPath) && file_exists($stagingScreenshotPath)) {
+			$this->debug('Comparing ' . $productionScreenshotPath . ' and ' . $stagingScreenshotPath);
+			return $this->compareImages($productionScreenshotPath, $stagingScreenshotPath);
+		} else {
 			return [
 				'composedImages' => null,
 				'comparisonImage' => null,
 				'difference' => 0,
 			];
-		} else {
-			$this->debug('Comparing ' . $referenceImagePath . ' and ' . $comparisonImagePath);
-			return $this->compareImages($referenceImagePath, $comparisonImagePath);
 		}
 	}
 
@@ -399,6 +344,7 @@ class Puffin extends Module
 		$comparisonResult = [];
 		try {
 			$result = $referenceImage->compareImages($comparisonImage, Imagick::METRIC_MEANSQUAREERROR);
+			/** @var $comparisonResult ['composedImages'] Imagick */
 			$comparisonResult['composedImages'] = $result[0];
 			$comparisonResult['composedImages']->setImageFormat('png');
 
@@ -421,9 +367,98 @@ class Puffin extends Module
 	}
 
 
-	public function getReferenceScreenshotDirectory()
+	public function getWorkingDirectory()
 	{
-		return $this->referenceScreenshotDirectory;
+		return $this->workingDirectory;
+	}
+
+
+	/**
+	 * Returns the temporary path including the filename where a the screenshot should be saved
+	 * If the path doesn't exist, the method generate it itself
+	 *
+	 * @param string $identifier identifies your test object
+	 * @return string Path an name of the image file
+	 * @throws \RuntimeException if debug dir could not create
+	 */
+	private function getScreenshotPath($identifier)
+	{
+		$productionScreenshotPath = $this->getProductionScreenshotPath($identifier);
+		$stagingScreenshotPath = $this->getStagingScreenshotPath($identifier);
+
+		if (file_exists($productionScreenshotPath)) {
+			return $stagingScreenshotPath;
+		} else {
+			return $productionScreenshotPath;
+		}
+	}
+
+
+	/**
+	 * Returns the production screenshot path including the filename
+	 *
+	 * @param string $identifier identifies your test object
+	 * @return string Name of the production image file
+	 */
+	private function getProductionScreenshotPath($identifier)
+	{
+		return $this->getBasePath($identifier) . '.production.' . self::SCREENSHOT_EXTENSION;
+	}
+
+
+	/**
+	 * Returns the production screenshot path including the filename
+	 *
+	 * @param string $identifier identifies your test object
+	 * @return string Name of the staging image file
+	 */
+	private function getStagingScreenshotPath($identifier)
+	{
+		return $this->getBasePath($identifier) . '.staging.' . self::SCREENSHOT_EXTENSION;
+	}
+
+
+	/**
+	 * Returns the production screenshot path including the filename
+	 *
+	 * @param string $identifier identifies your test object
+	 * @return string Name of the comparison result
+	 */
+	private function getComparisonResultPath($identifier)
+	{
+		return $this->getBasePath($identifier) . '.comparison.' . self::COMPARISON_RESULT_EXTENSION;
+	}
+
+
+	/**
+	 * Returns the image path including the filename of a deviation image
+	 *
+	 * @param string $identifier identifies your test object
+	 * @return string Path of the composed image
+	 */
+	private function getComparisonScreenshotPath($identifier)
+	{
+		return $this->getBasePath($identifier) . '.comparison.' . self::SCREENSHOT_EXTENSION;
+	}
+
+
+	/**
+	 * @param $identifier
+	 * @return string
+	 */
+	private function getBasePath($identifier)
+	{
+		return $this->workingDirectory . $this->getScreenshotName($identifier);
+	}
+
+
+	/**
+	 * @param int $number
+	 * @return string
+	 */
+	private function formatNumber($number)
+	{
+		return number_format($number ?: 0, 15);
 	}
 
 }
