@@ -73,7 +73,7 @@ class Puffin extends Module
 		if (array_key_exists('workingDirectory', $this->config)) {
 			$this->workingDirectory = $this->config['workingDirectory'];
 		} else {
-			$this->workingDirectory = Configuration::outputDir() . '/Puffin/';
+			$this->workingDirectory = Configuration::dataDir() . '/Puffin/';
 		}
 
 		if (!@mkdir($this->workingDirectory, 0777, true) && !is_dir($this->workingDirectory)) {
