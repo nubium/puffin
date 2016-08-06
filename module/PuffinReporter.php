@@ -78,11 +78,11 @@ class PuffinReporter extends Module
 		}
 
 		// sort results by deviation
-		uasort($results, function ($item1, $item2) {
-			if ($item1['deviation'] === $item2['deviation']) {
+		uasort($results, function ($left, $right) {
+			if ($left['deviation'] === $right['deviation']) {
 				return 0;
 			}
-			return $item1['deviation'] < $item2['deviation'] ? -1 : 1;
+			return $left['deviation'] < $right['deviation'] ? 1 : -1;
 		});
 
 		// convert images to base64 string
