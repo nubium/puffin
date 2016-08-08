@@ -4,8 +4,7 @@
   "description": "Compare current website with its expected visual representation.",
   "require": {
     "codeception/codeception": "~2.1.0",
-    "symfony/finder": "~2.4",
-    "latte/latte": "~2.3.0"
+    "symfony/finder": "~2.4"
   },
   "authors": [
     {

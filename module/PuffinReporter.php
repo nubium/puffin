@@ -4,7 +4,6 @@ namespace Codeception\Module;
 
 use Codeception\Configuration;
 use Codeception\Module;
-use Latte\Engine;
 use RuntimeException;
 use Symfony\Component\Finder\Finder;
 use Symfony\Component\Finder\SplFileInfo;
@@ -93,10 +92,9 @@ class PuffinReporter extends Module
 		}
 
 		// render report
-		$latte = new Engine;
-		$report = $latte->renderToString(__DIR__ . '/report/template.latte', [
-			'results' => $results,
-		]);
+		ob_start();
+		include __DIR__ . '/report/report.php';
+		$report = ob_get_clean();
 
 		file_put_contents($this->workingDirectory . '/report.html', $report);
 	}
